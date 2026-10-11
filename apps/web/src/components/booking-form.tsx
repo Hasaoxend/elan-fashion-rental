@@ -1,0 +1,50 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { CheckCircle2, Loader2, AlertCircle, CalendarDays } from 'lucide-react';
+import { checkAvailability, createBooking, Product } from '@/lib/api';
+
+interface BookingFormProps { product: Product; }
+
+export function BookingForm({ product }: BookingFormProps) {
+  const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+  const [pickupDate, setPickupDate] = useState(tomorrow);
+  const [returnDate, setReturnDate] = useState(new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10));
+  const [size, setSize] = useState(product.variants[0]?.size || 'M');
+  const [quantity, setQuantity] = useState(1);
+  const [availability, setAvailability] = useState<any>(null);
+  const [checking, setChecking] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [success, setSuccess] = useState<any>(null);
+  const [error, setError] = useState('');
+  const [customer, setCustomer] = useState({ fullName: '', phone: '', email: '', address: '', note: '', deliveryMethod: 'store_pickup' as 'store_pickup' | 'home_delivery', paymentMethod: 'cod' as 'cod' | 'bank_transfer' | 'qr' | 'ewallet' | 'online' });
+
+  useEffect(() => {
+    if (!pickupDate || !returnDate || returnDate <= pickupDate) { setAvailability(null); return; }
+    setChecking(true); setError('');
+    const selectedVariant = product.variants.find((variant) => variant.size === size);
+    const timer = setTimeout(() => checkAvailability(product.id, pickupDate, returnDate, quantity, selectedVariant?.id).then(setAvailability).catch((e) => setError(e.message)).finally(() => setChecking(false)), 300);
+    return () => clearTimeout(timer);
+  }, [product.id, pickupDate, returnDate, quantity]);
+
+  const rentalDays = Math.max(1, Math.ceil((new Date(returnDate).getTime() - new Date(pickupDate).getTime()) / 86_400_000));
+  const pricePerDay = rentalDays >= 7 ? product.price7Days / 7 : rentalDays >= 3 ? product.price3Days / 3 : product.pricePerDay;
+  const subtotal = Math.round(pricePerDay * rentalDays * quantity);
+  const serviceFee = Math.round(subtotal * product.serviceFeeRate);
+  const shippingFee = customer.deliveryMethod === 'home_delivery' ? 50000 : 0;
+  const total = subtotal + serviceFee + shippingFee;
+
+  const submit = async () => {
+    if (!availability?.available) return;
+    setSubmitting(true); setError('');
+    try {
+      const result = await createBooking({ productId: product.id, variantId: product.variants.find((v) => v.size === size)?.id, size, color: product.colorName || 'default', quantity, pickupDate, returnDate, ...customer });
+      setSuccess(result.booking); setShowModal(false);
+    } catch (e) { setError(e instanceof Error ? e.message : 'Không thể đặt lịch.'); } finally { setSubmitting(false); }
+  };
+
+  if (success) return <div className="p-8 rounded-2xl bg-[#E8F5EE] border border-[#C4E5D0] text-center animate-fade-in"><CheckCircle2 className="w-12 h-12 text-[#3D8B5F] mx-auto mb-4" /><h3 className="text-xl font-semibold mb-2">Đặt lịch thành công!</h3><p className="text-sm text-[#6B6B6B] mb-5">Mã đơn hàng của bạn</p><p className="text-2xl font-bold text-[#171717] mb-6">#{success.bookingCode}</p><p className="text-sm text-[#6B6B6B]">Chúng tôi sẽ liên hệ với bạn để xác nhận đơn hàng trong thời gian sớm nhất.</p></div>;
+
+  return <div className="bg-white rounded-2xl border border-[#E5E3DF] p-6 lg:p-8"><div className="flex items-center gap-2 mb-6"><CalendarDays className="w-5 h-5 text-[#C89B6D]" /><h2 className="text-xl font-semibold">Đặt lịch thuê</h2></div><div className="grid grid-cols-2 gap-4 mb-5"><label className="text-sm"><span className="block text-[#6B6B6B] mb-2">Ngày nhận</span><input type="date" min={tomorrow} value={pickupDate} onChange={(e) => setPickupDate(e.target.value)} className="w-full px-3 py-3 border border-[#E5E3DF] rounded-lg outline-none focus:border-[#C89B6D]" /></label><label className="text-sm"><span className="block text-[#6B6B6B] mb-2">Ngày trả</span><input type="date" min={pickupDate} value={returnDate} onChange={(e) => setReturnDate(e.target.value)} className="w-full px-3 py-3 border border-[#E5E3DF] rounded-lg outline-none focus:border-[#C89B6D]" /></label></div><div className="grid grid-cols-2 gap-4 mb-5"><label className="text-sm"><span className="block text-[#6B6B6B] mb-2">Kích thước</span><select value={size} onChange={(e) => setSize(e.target.value)} className="w-full px-3 py-3 border border-[#E5E3DF] rounded-lg bg-white outline-none focus:border-[#C89B6D]">{Array.from(new Set(product.variants.map((v) => v.size))).map((item) => <option key={item}>{item}</option>)}</select></label><label className="text-sm"><span className="block text-[#6B6B6B] mb-2">Số lượng</span><select value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} className="w-full px-3 py-3 border border-[#E5E3DF] rounded-lg bg-white outline-none focus:border-[#C89B6D]">{[1, 2, 3].map((item) => <option key={item}>{item}</option>)}</select></label></div>{checking && <div className="flex items-center gap-2 text-sm text-[#6B6B6B] py-3"><Loader2 className="w-4 h-4 animate-spin" /> Đang kiểm tra tình trạng...</div>}{!checking && availability && <div className={`flex items-start gap-2 p-4 rounded-lg text-sm mb-5 ${availability.available ? 'bg-[#E8F5EE] text-[#3D8B5F]' : 'bg-[#FDECEC] text-[#C94A4A]'}`}>{availability.available ? <CheckCircle2 className="w-5 h-5 shrink-0" /> : <AlertCircle className="w-5 h-5 shrink-0" />}<div><p className="font-medium">{availability.available ? `Có thể đặt — còn ${availability.remainingQuantity} sản phẩm` : availability.reason === 'MAINTENANCE' ? 'Trang phục đang bảo trì trong khoảng ngày này.' : 'Trang phục vừa được đặt. Vui lòng chọn ngày khác.'}</p>{!availability.available && availability.nextAvailableDate && <p className="mt-1">Ngày gần nhất có thể thuê: {availability.nextAvailableDate}</p>}</div></div>}<div className="border-t border-[#E5E3DF] pt-5 mb-6 space-y-3 text-sm"><div className="flex justify-between"><span className="text-[#6B6B6B]">{pricePerDay.toLocaleString('vi-VN')}đ × {rentalDays} ngày × {quantity}</span><span>{subtotal.toLocaleString('vi-VN')}đ</span></div><div className="flex justify-between"><span className="text-[#6B6B6B]">Phí dịch vụ</span><span>{serviceFee.toLocaleString('vi-VN')}đ</span></div><div className="flex justify-between font-semibold text-base pt-3 border-t border-[#E5E3DF]"><span>Tạm tính</span><span>{total.toLocaleString('vi-VN')}đ</span></div><div className="flex justify-between text-xs text-[#6B6B6B]"><span>Tiền cọc (hoàn lại)</span><span>{(product.depositAmount * quantity).toLocaleString('vi-VN')}đ</span></div></div>{error && <p className="text-sm text-[#C94A4A] mb-4">{error}</p>}<button disabled={!availability?.available || checking} onClick={() => setShowModal(true)} className="w-full py-4 bg-[#171717] text-white rounded-lg font-medium hover:bg-[#C89B6D] disabled:opacity-40 disabled:cursor-not-allowed transition">Đặt lịch ngay</button><p className="text-xs text-center text-[#A0A0A0] mt-3">Bạn chưa bị tính phí ở bước này</p>{showModal && <div className="fixed inset-0 z-[70] flex items-center justify-center p-4"><div className="absolute inset-0 bg-black/50" onClick={() => !submitting && setShowModal(false)} /><div className="relative bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 lg:p-8"><h2 className="text-2xl font-display mb-2">Thông tin khách hàng</h2><p className="text-sm text-[#6B6B6B] mb-6">Hoàn tất thông tin để gửi yêu cầu đặt lịch.</p><div className="space-y-4"><input placeholder="Họ và tên *" value={customer.fullName} onChange={(e) => setCustomer({ ...customer, fullName: e.target.value })} className="w-full px-4 py-3 border border-[#E5E3DF] rounded-lg outline-none focus:border-[#C89B6D]" /><div className="grid grid-cols-2 gap-3"><input placeholder="Số điện thoại *" value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} className="w-full px-4 py-3 border border-[#E5E3DF] rounded-lg outline-none focus:border-[#C89B6D]" /><input placeholder="Email *" type="email" value={customer.email} onChange={(e) => setCustomer({ ...customer, email: e.target.value })} className="w-full px-4 py-3 border border-[#E5E3DF] rounded-lg outline-none focus:border-[#C89B6D]" /></div><select value={customer.deliveryMethod} onChange={(e) => setCustomer({ ...customer, deliveryMethod: e.target.value as any })} className="w-full px-4 py-3 border border-[#E5E3DF] rounded-lg bg-white"><option value="store_pickup">Nhận tại cửa hàng</option><option value="home_delivery">Giao tận nơi (+50.000đ)</option></select>{customer.deliveryMethod === 'home_delivery' && <input placeholder="Địa chỉ nhận hàng" value={customer.address} onChange={(e) => setCustomer({ ...customer, address: e.target.value })} className="w-full px-4 py-3 border border-[#E5E3DF] rounded-lg outline-none focus:border-[#C89B6D]" />}<textarea placeholder="Ghi chú (không bắt buộc)" value={customer.note} onChange={(e) => setCustomer({ ...customer, note: e.target.value })} rows={3} className="w-full px-4 py-3 border border-[#E5E3DF] rounded-lg outline-none focus:border-[#C89B6D] resize-none" /><div className="p-4 bg-[#F8F7F5] rounded-lg text-sm"><div className="flex justify-between mb-2"><span className="text-[#6B6B6B]">Tổng tiền thuê</span><b>{total.toLocaleString('vi-VN')}đ</b></div><div className="flex justify-between"><span className="text-[#6B6B6B]">Tiền cọc</span><b>{(product.depositAmount * quantity).toLocaleString('vi-VN')}đ</b></div></div>{error && <p className="text-sm text-[#C94A4A]">{error}</p>}<button onClick={submit} disabled={submitting || !customer.fullName || !customer.phone || !customer.email} className="w-full py-4 bg-[#171717] text-white rounded-lg font-medium disabled:opacity-40 flex items-center justify-center gap-2">{submitting && <Loader2 className="w-4 h-4 animate-spin" />}{submitting ? 'Đang xử lý...' : 'Xác nhận đặt lịch'}</button></div></div></div>}</div>;
+}

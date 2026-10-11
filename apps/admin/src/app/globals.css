@@ -1,0 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* { box-sizing: border-box; }
+body { margin: 0; background: #F8F7F5; color: #171717; }
+::selection { background: #C89B6D; color: white; }

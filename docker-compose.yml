@@ -1,0 +1,53 @@
+# Docker Compose — tham khảo cho môi trường production
+# Lưu ý: cấu hình này CHƯA được chạy thử (máy dev không có Docker).
+# Để dùng: đổi datasource Prisma sang "postgresql",
+# cập nhật apps/backend/.env với DATABASE_URL của Postgres bên dưới,
+# rồi chạy: docker compose up --build
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fashion
+      POSTGRES_PASSWORD: fashion_dev_password
+      POSTGRES_DB: fashion_rental
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fashion -d fashion_rental"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  backend:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://fashion:fashion_dev_password@postgres:5432/fashion_rental
+      PORT: 4000
+      NODE_ENV: production
+      FRONTEND_URL: http://localhost:3000,http://localhost:3001
+      JWT_SECRET: change-me-before-deploy
+      JWT_REFRESH_SECRET: change-me-too-before-deploy
+    ports:
+      - "4000:4000"
+
+volumes:
+  postgres_data:
+  redis_data:
