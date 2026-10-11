@@ -110,15 +110,3 @@ npm.cmd run test --workspace=apps/backend
 ```
 
 Nếu dùng database test khác, backend và tiến trình test phải dùng cùng `DATABASE_URL`; `API_URL` của tiến trình test phải trỏ đến backend đó.
-
-## Production: các việc còn cần xác minh
-
-Đưa mã nguồn lên GitHub không triển khai ứng dụng. Trước khi triển khai:
-
-- Cấu hình JWT secrets riêng, CORS đúng domain, HTTPS và URL API/WebSocket. Không dùng tài khoản/mật khẩu demo.
-- Đặt `NEXT_PUBLIC_API_URL` và `NEXT_PUBLIC_SOCKET_URL` trước khi build frontend; thay URL thì build lại.
-- Schema và migration hiện dùng SQLite. `docker-compose.yml` là bản tham khảo PostgreSQL, chưa chạy thử và không tương thích trực tiếp với migration SQLite. Chuyển database cần migration riêng và kiểm thử; chỉ thay `DATABASE_URL` không đủ.
-- Dockerfile/Compose chưa được xác minh. Các giá trị mật khẩu trong Compose là ví dụ, không dùng chúng làm secrets production.
-- Xác minh phân quyền, giới hạn request sau reverse proxy, tính nhất quán booking đồng thời, thanh toán, lưu trữ database và backup/khôi phục trên môi trường triển khai thực tế.
-
-Không có kết quả kiểm thử tải hoặc đảm bảo quy mô người dùng trong repo này.
