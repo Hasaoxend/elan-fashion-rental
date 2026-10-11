@@ -50,7 +50,7 @@ Các điểm chính trong code:
 - [Prisma schema](apps/backend/prisma/schema.prisma): định nghĩa các đối tượng lưu trữ và quan hệ giữa chúng.
 - [Realtime backend](apps/backend/src/realtime.ts) và [hook admin](apps/admin/src/lib/realtime.ts): phát/nhận sự kiện Socket.IO.
 
-## Sơ đồ đối tượng nghiệp vụ
+## Sơ đồ lớp — đối tượng nghiệp vụ
 
 Sơ đồ lớp dưới đây mô tả các model Prisma cốt lõi và một số thuộc tính thực tế. Logic tạo đơn nằm trong các hàm service; các model biểu diễn dữ liệu và quan hệ, không phải hệ thống lớp kế thừa.
 
@@ -140,13 +140,164 @@ Mỗi dòng thuê liên kết đến đơn và sản phẩm, đồng thời có 
 
 Xem [ERD chi tiết](docs/ERD.md) và [schema đầy đủ](apps/backend/prisma/schema.prisma) để tra cứu các model còn lại.
 
-## Dữ liệu đi qua luồng đặt thuê như thế nào?
+## Sơ đồ use case — ai sử dụng chức năng nào?
+
+Các actor được nhóm theo role thực sự được API chấp nhận. Một người có role `ADMIN` hoặc `SUPER_ADMIN` có thể xuất hiện trong nhiều nhóm bên dưới. Use case đặt thuê bao gồm kiểm tra khả dụng ở backend; các chức năng quản trị yêu cầu đăng nhập và role phù hợp.
+
+```mermaid
+flowchart LR
+    Customer["Khách hàng / khách vãng lai"]
+    Operations["Nhân viên đơn hàng<br/>SUPER_ADMIN / ADMIN / STAFF"]
+    Warehouse["Nhân sự kho<br/>SUPER_ADMIN / ADMIN / WAREHOUSE"]
+    Accountant["Kế toán<br/>SUPER_ADMIN / ADMIN / ACCOUNTANT"]
+    Manager["Quản trị<br/>SUPER_ADMIN / ADMIN"]
+    Owner["Quản trị cao nhất<br/>SUPER_ADMIN"]
+
+    subgraph System["Élan Fashion Rental"]
+        Catalog([Xem và tìm trang phục])
+        Availability([Kiểm tra lịch trống])
+        Book([Đặt thuê trang phục])
+        Lookup([Tra cứu đơn bằng mã và số điện thoại])
+        Cancel([Hủy đơn bằng số điện thoại])
+        Login([Đăng nhập quản trị])
+        Orders([Xem đơn và cập nhật trạng thái])
+        Inventory([Cập nhật tồn biến thể])
+        Maintenance([Tạo và cập nhật phiếu bảo trì])
+        Payments([Ghi nhận và cập nhật thanh toán])
+        Reports([Xem báo cáo])
+        Products([Tạo, sửa và xóa sản phẩm])
+        Settings([Cập nhật cấu hình cửa hàng])
+        Users([Quản lý người dùng và role])
+    end
+
+    Customer --- Catalog
+    Customer --- Availability
+    Customer --- Book
+    Customer --- Lookup
+    Customer --- Cancel
+    Book -.->|include| Availability
+    Operations --- Orders
+    Warehouse --- Inventory
+    Warehouse --- Maintenance
+    Accountant --- Payments
+    Accountant --- Reports
+    Manager --- Products
+    Manager --- Settings
+    Owner --- Users
+    Operations --- Login
+    Warehouse --- Login
+    Accountant --- Login
+    Manager --- Login
+    Owner --- Login
+```
+
+Use case hủy đơn công khai được API thực hiện khi số điện thoại khớp đơn và trạng thái chưa thuộc `completed`, `cancelled`, `returned`. Sơ đồ thể hiện chức năng API; không giả định mọi actor đã có một màn hình riêng cho từng chức năng. Các nút bo tròn là ca sử dụng, nằm trong ranh giới hệ thống; actor nằm bên ngoài. Use case xóa sản phẩm gọi `prisma.product.delete`; quan hệ khóa ngoại trong schema có thể chặn xóa sản phẩm đã được tham chiếu bởi đơn thuê.
+
+## Biểu đồ trạng thái — booking
+
+Khi tạo đơn, trạng thái đầu tiên là `pending`. Endpoint `PATCH /api/bookings/:id/status` kiểm tra JWT, role `SUPER_ADMIN`/`ADMIN`/`STAFF` và giá trị status trong chín lựa chọn dưới đây. Service hiện không kiểm tra ma trận chuyển trạng thái: từ bất kỳ status nào, request hợp lệ có thể đặt một status khác hoặc chính status hiện tại.
+
+```mermaid
+stateDiagram-v2
+    state "pending — chờ xác nhận" as Pending
+    state "confirmed — đã xác nhận" as Confirmed
+    state "preparing — đang chuẩn bị" as Preparing
+    state "delivering — đang giao" as Delivering
+    state "picked_up — đã nhận trang phục" as PickedUp
+    state "returned — đã trả trang phục" as Returned
+    state "completed — hoàn tất" as Completed
+    state "cancelled — đã hủy" as Cancelled
+    state "rejected — từ chối" as Rejected
+    state Change <<choice>>
+
+    [*] --> Pending: Tạo booking
+    Pending --> Change: PATCH status hợp lệ
+    Confirmed --> Change: PATCH status hợp lệ
+    Preparing --> Change: PATCH status hợp lệ
+    Delivering --> Change: PATCH status hợp lệ
+    PickedUp --> Change: PATCH status hợp lệ
+    Returned --> Change: PATCH status hợp lệ
+    Completed --> Change: PATCH status hợp lệ
+    Cancelled --> Change: PATCH status hợp lệ
+    Rejected --> Change: PATCH status hợp lệ
+    Change --> Pending: pending
+    Change --> Confirmed: confirmed
+    Change --> Preparing: preparing
+    Change --> Delivering: delivering
+    Change --> PickedUp: picked_up
+    Change --> Returned: returned
+    Change --> Completed: completed
+    Change --> Cancelled: cancelled
+    Change --> Rejected: rejected
+```
+
+Điểm rẽ `Change` đại diện cho lựa chọn trong request, không phải một status lưu trong database. Không vẽ các trạng thái `completed`/`cancelled`/`rejected` thành điểm kết thúc tuyệt đối vì route cập nhật status vẫn có thể thay đổi chúng. Khi đổi trạng thái, service ghi `BookingStatusHistory`, cập nhật `Booking`, ghi `AuditLog` trong transaction, rồi lưu thông báo và phát `booking.updated` sau commit.
+
+| Nhóm trạng thái | Ảnh hưởng đến kiểm tra lịch trống |
+| --- | --- |
+| `pending`, `confirmed`, `preparing`, `delivering`, `picked_up`, `returned` | Được tính vào các đơn đang giữ hàng theo `ACTIVE_BOOKING_STATUSES`. |
+| `completed`, `cancelled`, `rejected` | Không được tính vào lượng đã đặt khi kiểm tra khả dụng. |
+
+Route riêng `POST /api/bookings/:id/cancel` có kiểm tra trạng thái và số điện thoại/chủ đơn như mô tả trong use case; điều kiện này không được áp dụng tự động cho route `PATCH status`.
+
+## Biểu đồ hoạt động — xử lý yêu cầu đặt thuê
+
+Sơ đồ mô tả các quyết định của backend sau khi website gửi `POST /api/bookings`. Kiểm tra trên form là bước trước đó; backend vẫn kiểm tra lại dữ liệu và khả dụng khi tạo đơn.
+
+```mermaid
+flowchart TD
+    Start((Bắt đầu)) --> Input[Nhận request đặt thuê]
+    Input --> Valid{Request hợp lệ theo Zod?}
+    Valid -->|Không| BadInput[HTTP 400 - INVALID_INPUT]
+    Valid -->|Có| Dates[Tính ngày UTC và số ngày thuê]
+    Dates --> Range{Số ngày thuê từ 1 trở lên?}
+    Range -->|Không| BadDates[HTTP 400 - INVALID_DATE_RANGE]
+    Range -->|Có| Lock
+
+    subgraph Transaction["Transaction tạo booking"]
+        Lock[Bắt đầu transaction và cập nhật Lock booking:global]
+        Lock --> Product[Đọc sản phẩm và các biến thể]
+        Product --> Active{Sản phẩm tồn tại và hoạt động?}
+        Active -->|Không| ProductError[PRODUCT_NOT_FOUND - rollback]
+        Active -->|Có| Variant{Biến thể và size hợp lệ?}
+        Variant -->|Không| VariantError[INVALID_VARIANT - rollback]
+        Variant -->|Có| Check[Đọc tồn, đơn trùng lịch và bảo trì]
+        Check --> Available{Đủ khả dụng cho số lượng yêu cầu?}
+        Available -->|Không| Conflict[PRODUCT_NOT_AVAILABLE - rollback]
+        Available -->|Có| Price[Tính tiền thuê, cọc, phí dịch vụ và giao hàng]
+        Price --> Customer[Tìm hoặc tạo Customer]
+        Customer --> Code[Sinh mã booking]
+        Code --> Save[Lưu Booking, BookingItem và lịch sử pending]
+        Save --> Ledger[Ghi InventoryTransaction]
+        Ledger --> Commit[Commit transaction]
+    end
+
+    ProductError --> NotFound[HTTP 404]
+    VariantError --> BadVariant[HTTP 400]
+    Conflict --> Unavailable[HTTP 409]
+    Commit --> Notification[Lưu Notification sau commit]
+    Notification --> Saved{Lưu thông báo thành công?}
+    Saved -->|Có| Events[Phát booking.created và notification.created]
+    Events --> Created[HTTP 201 - trả booking]
+    Saved -->|Không| PostCommitError[Trả lỗi - booking đã commit vẫn tồn tại]
+    BadInput --> End((Kết thúc))
+    BadDates --> End
+    NotFound --> End
+    BadVariant --> End
+    Unavailable --> End
+    Created --> End
+    PostCommitError --> End
+```
+
+Các lỗi ghi database trước commit làm transaction rollback và được chuyển đến middleware xử lý lỗi. `Notification` được tạo sau commit: nếu bước này lỗi, request có thể trả lỗi dù đơn đã được lưu. Sơ đồ giữ nguyên ranh giới transaction thực tế trong [booking service](apps/backend/src/services/booking.service.ts).
+
+## Biểu đồ trình tự — dữ liệu đi qua luồng đặt thuê
 
 ```mermaid
 sequenceDiagram
     actor Customer as Khách hàng
     participant Web as Website
-    participant API as Booking API
+    participant API as Express API
     participant Service as createBooking
     participant DB as SQLite qua Prisma
     participant Admin as Admin
