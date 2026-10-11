@@ -2,6 +2,24 @@
 
 Élan Fashion Rental giúp cửa hàng cho thuê trang phục đưa bộ sưu tập lên website, nhận yêu cầu thuê theo ngày và quản lý đơn hàng, tồn kho, bảo trì, thanh toán trong một trang quản trị. Khách chọn trang phục, kích thước, ngày nhận/trả và nhận mã đơn để tra cứu; nhân viên xử lý đơn trên admin.
 
+## Mục lục
+
+- [Hệ thống làm được gì?](#hệ-thống-làm-được-gì)
+- [Các phần phối hợp như thế nào?](#các-phần-phối-hợp-như-thế-nào)
+- [Sơ đồ lớp](#sơ-đồ-lớp--đối-tượng-nghiệp-vụ)
+- [Quan hệ dữ liệu](#quan-hệ-dữ-liệu-lưu-trong-database)
+- [Sơ đồ use case](#sơ-đồ-use-case--ai-sử-dụng-chức-năng-nào)
+- [Biểu đồ trạng thái](#biểu-đồ-trạng-thái--booking)
+- [Biểu đồ hoạt động](#biểu-đồ-hoạt-động--xử-lý-yêu-cầu-đặt-thuê)
+- [Biểu đồ trình tự](#biểu-đồ-trình-tự--dữ-liệu-đi-qua-luồng-đặt-thuê)
+- [Kiểm tra còn hàng và tính tiền](#cách-xác-định-còn-hàng-và-tính-tiền)
+- [Công nghệ và cấu trúc](#công-nghệ-và-cấu-trúc)
+- [Cài đặt local](#cài-đặt-local)
+  - [Tạo file môi trường](#1-tạo-các-file-môi-trường-thực-tế)
+  - [Tạo database và dữ liệu demo](#2-tạo-database-và-dữ-liệu-demo)
+  - [Chạy trong ba terminal](#3-chạy-trong-ba-terminal-riêng)
+- [Build và kiểm thử](#build-và-kiểm-thử)
+
 ## Hệ thống làm được gì?
 
 | Nhóm | Chức năng | Cách hệ thống xử lý |
