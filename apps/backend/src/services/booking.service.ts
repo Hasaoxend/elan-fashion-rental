@@ -1,7 +1,7 @@
 import type { CreateBookingInput } from '../validation';
 import { prisma } from '../db';
 import { AppError } from '../constants';
-import { toUtcDate, diffInDays } from '../lib/date';
+import { toUtcDate, diffInDays, startOfUtcToday } from '../lib/date';
 import { checkAvailability } from '../lib/availability';
 import { emitEvent } from '../realtime';
 
@@ -12,6 +12,9 @@ export async function createBooking(input: CreateBookingInput, customerId?: stri
 
   if (rentalDays < 1) {
     throw new AppError('Ngày trả phải sau ngày nhận ít nhất 1 ngày.', 400, 'INVALID_DATE_RANGE');
+  }
+  if (startDate < startOfUtcToday()) {
+    throw new AppError('Ngày nhận không được ở trong quá khứ.', 400, 'INVALID_DATE_RANGE');
   }
 
   // Bước 1: Bắt đầu transaction và lock booking:global để tuần tự hoá mọi thao tác tạo đơn.

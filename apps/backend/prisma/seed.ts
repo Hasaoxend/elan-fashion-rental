@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import { demoCatalog, demoProductData, demoSettings, demoSku, photo, PRODUCTS_PER_CATEGORY, staffRoles } from './demo-catalog';
 
 const prisma = new PrismaClient();
 
@@ -12,13 +13,6 @@ const categorySeeds = [
   ['Cosplay', 'cosplay', 'Biến hóa thành nhân vật bạn yêu thích.'],
   ['Trang phục biểu diễn', 'trang-phuc-bieu-dien', 'Thiết kế nổi bật, thoải mái chuyển động.'],
   ['Phụ kiện', 'phu-kien', 'Hoàn thiện phong cách bằng những điểm nhấn tinh tế.'],
-];
-
-const productNames = [
-  'Váy Dạ Hội Aurora', 'Váy Lụa Champagne', 'Váy Đen Velvet', 'Váy Rose Garden',
-  'Váy Pearl Muse', 'Váy Midnight Star', 'Váy Silk Serenity', 'Váy Golden Hour',
-  'Váy Emerald Grace', 'Váy Blush Bloom', 'Áo Dài Ngọc Lan', 'Áo Dài Mộc Miên',
-  'Vest Milano Classic', 'Vest Midnight Blue', 'Vest Sandstone', 'Crown Hairpiece',
 ];
 
 async function main() {
@@ -44,46 +38,32 @@ async function main() {
       update: {}, create: { roleId: role.id, permissionId: permission.id },
     });
   }
-  const customerRole = await prisma.role.upsert({
-    where: { name: 'CUSTOMER' }, update: {}, create: { name: 'CUSTOMER', description: 'Khách hàng' },
-  });
+  await prisma.role.upsert({ where: { name: 'CUSTOMER' }, update: {}, create: { name: 'CUSTOMER', description: 'Khách hàng' } });
+  for (const [name, description] of staffRoles) {
+    await prisma.role.upsert({ where: { name }, update: {}, create: { name, description, isSystem: true } });
+  }
 
   const passwordHash = await bcrypt.hash('Admin@123456', 12);
   await prisma.user.upsert({
     where: { email: 'admin@example.com' }, update: {},
     create: { email: 'admin@example.com', fullName: 'Nguyễn Minh Anh', passwordHash, roleId: role.id, mustChangePassword: true },
   });
+  // Tài khoản nhân viên mẫu: thanh toán + tra cứu kho.
+  const staffRole = await prisma.role.findUniqueOrThrow({ where: { name: 'STAFF' } });
+  await prisma.user.upsert({
+    where: { email: 'nhanvien@example.com' }, update: {},
+    create: { email: 'nhanvien@example.com', fullName: 'Trần Thu Hà', passwordHash: await bcrypt.hash('Staff@123456', 12), roleId: staffRole.id },
+  });
 
   const categories = [];
   for (const [name, slug, description] of categorySeeds) {
     categories.push(await prisma.category.upsert({
-      where: { slug }, update: {}, create: { name, slug, description, imageUrl: `https://images.unsplash.com/photo-1496747611176-843222e1e57c?w=900&q=80` },
+      where: { slug }, update: {}, create: { name, slug, description, imageUrl: photo(demoCatalog.find((c) => c.slug === slug)!.cover, 900) },
     }));
   }
 
-  for (let i = 0; i < 50; i += 1) {
-    const name = productNames[i % productNames.length] + (i >= productNames.length ? ` ${Math.floor(i / productNames.length) + 1}` : '');
-    const slug = `${name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}-${i + 1}`;
-    const category = categories[i % categories.length];
-    const product = await prisma.product.upsert({
-      where: { sku: `DRESS-${String(i + 1).padStart(4, '0')}` }, update: {},
-      create: {
-        sku: `DRESS-${String(i + 1).padStart(4, '0')}`, name, slug,
-        description: `Thiết kế ${name} được tuyển chọn từ bộ sưu tập cao cấp, phù hợp cho những dịp đặc biệt. Chất liệu mềm mại, phom dáng tinh tế và được chăm sóc kỹ lưỡng sau mỗi lần thuê.`,
-        shortDescription: 'Thiết kế thanh lịch cho những khoảnh khắc đáng nhớ.',
-        categoryId: category.id, pricePerDay: 450000 + (i % 6) * 100000,
-        price3Days: 1100000 + (i % 6) * 250000, price7Days: 2200000 + (i % 6) * 450000,
-        depositAmount: 1000000 + (i % 4) * 500000, brand: 'Maison Élégance', material: i % 2 ? 'Lụa satin' : 'Ren cao cấp', colorName: ['Đen', 'Champagne', 'Đỏ ruby', 'Xanh midnight', 'Hồng phấn'][i % 5], sizeLabel: 'S / M / L', isFeatured: i < 8,
-        images: { create: [
-          { url: `https://images.unsplash.com/photo-${['1515372039744-b8f02a3ae446', '1566174053879-31528523f8ae', '1595777457583-95e059d581b8', '1539008835657-9e8e9680c956'][i % 4]}?auto=format&fit=crop&w=1000&q=85`, altText: name, sortOrder: 0 },
-          { url: `https://images.unsplash.com/photo-${['1496747611176-843222e1e57c', '1525507119028-ed4c629a60a3', '1485230895905-ec40ba36b9bc'][i % 3]}?auto=format&fit=crop&w=1000&q=85`, altText: `${name} detail`, sortOrder: 1 },
-        ] },
-        variants: { create: [
-          { size: 'S', color: 'default', stockTotal: 2 }, { size: 'M', color: 'default', stockTotal: 3 }, { size: 'L', color: 'default', stockTotal: 2 },
-        ] },
-      },
-    });
-    if (!product) throw new Error('Product seed failed');
+  for (let i = 0; i < demoCatalog.length * PRODUCTS_PER_CATEGORY; i += 1) {
+    await prisma.product.upsert({ where: { sku: demoSku(i) }, update: {}, create: demoProductData(i, categories[i % categories.length].id) });
   }
 
   for (let i = 1; i <= 30; i += 1) {
@@ -93,10 +73,8 @@ async function main() {
     });
   }
 
-  for (const keyValue of [
-    ['rental.bufferDays', '1', 'rental'], ['rental.minDays', '1', 'rental'], ['rental.maxDays', '30', 'rental'], ['store.name', 'Élan Rental', 'general'],
-    ['payment.bankName', 'Vietcombank', 'payment'], ['payment.accountNumber', '0123456789', 'payment'], ['payment.accountName', 'ELAN RENTAL', 'payment'], ['payment.branch', 'Chi nhánh trung tâm', 'payment'], ['payment.qrUrl', '', 'payment'],
-  ]) await prisma.setting.upsert({ where: { key: keyValue[0] }, update: { value: keyValue[1], group: keyValue[2] }, create: { key: keyValue[0], value: keyValue[1], group: keyValue[2] } });
+  // update: {} — chạy lại seed không ghi đè cấu hình admin đã sửa.
+  for (const [key, value, group] of demoSettings) await prisma.setting.upsert({ where: { key }, update: {}, create: { key, value, group } });
 
   // Demo operational data: bookings, maintenance, payments and notifications.
   const demoCustomers = await prisma.customer.findMany({ take: 10 });

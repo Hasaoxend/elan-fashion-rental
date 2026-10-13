@@ -1,15 +1,15 @@
 import Link from 'next/link';
+import type { StoreInfo } from '@/lib/api';
 
-export function Footer() {
+export function Footer({ store }: { store: StoreInfo | null }) {
   return (
     <footer className="bg-[#171717] text-white mt-20">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-12">
           <div>
-            <h3 className="text-2xl font-bold mb-4">FASHION RENTAL</h3>
-            <p className="text-[#A0A0A0] text-sm leading-relaxed">
-              Thuê trang phục cao cấp cho những khoảnh khắc đặc biệt. Phong cách của bạn, câu chuyện của bạn.
-            </p>
+            <h3 className="text-2xl font-bold mb-1 uppercase tracking-wide">{store?.['store.name'] ?? 'Hamin'}</h3>
+            {store && <p className="text-xs text-[#C89B6D] mb-4">{store['store.legalName']}</p>}
+            <p className="text-[#A0A0A0] text-sm leading-relaxed">{store?.['store.tagline'] ?? 'Thuê trang phục cao cấp cho những khoảnh khắc đặc biệt.'}</p>
           </div>
           <div>
             <h4 className="font-semibold mb-4">Khám phá</h4>
@@ -23,28 +23,26 @@ export function Footer() {
           <div>
             <h4 className="font-semibold mb-4">Hỗ trợ</h4>
             <div className="flex flex-col gap-3 text-sm text-[#A0A0A0]">
-              <Link href="/faq" className="hover:text-white transition">Câu hỏi thường gặp</Link>
-              <Link href="/shipping" className="hover:text-white transition">Chính sách giao hàng</Link>
-              <Link href="/returns" className="hover:text-white transition">Chính sách đổi trả</Link>
-              <Link href="/terms" className="hover:text-white transition">Điều khoản sử dụng</Link>
+              <Link href="/orders" className="hover:text-white transition">Tra cứu đơn hàng</Link>
+              <Link href="/account" className="hover:text-white transition">Tài khoản của tôi</Link>
+              <Link href="/wishlist" className="hover:text-white transition">Danh sách yêu thích</Link>
+              <Link href="/contact" className="hover:text-white transition">Gửi câu hỏi</Link>
             </div>
           </div>
-          <div>
-            <h4 className="font-semibold mb-4">Liên hệ</h4>
-            <div className="flex flex-col gap-3 text-sm text-[#A0A0A0]">
-              <p>123 Nguyễn Huệ, Quận 1, TP.HCM</p>
-              <p>+84 28 1234 5678</p>
-              <p>hello@fashionrental.vn</p>
-              <p>Thứ 2 - Chủ nhật: 9:00 - 21:00</p>
+          {store && (
+            <div>
+              <h4 className="font-semibold mb-4">Liên hệ</h4>
+              <div className="flex flex-col gap-3 text-sm text-[#A0A0A0]">
+                <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(store['store.address'])}`} target="_blank" rel="noreferrer" className="hover:text-white transition">{store['store.address']}</a>
+                <a href={`tel:${store['store.phone'].replace(/[^\d+]/g, '')}`} className="hover:text-white transition">{store['store.phone']}</a>
+                <a href={`mailto:${store['store.email']}`} className="hover:text-white transition">{store['store.email']}</a>
+                <p>{store['store.hours']}</p>
+              </div>
             </div>
-          </div>
+          )}
         </div>
-        <div className="border-t border-[#333] mt-12 pt-8 flex flex-col sm:flex-row justify-between items-center gap-4 text-sm text-[#A0A0A0]">
-          <p>© 2026 Fashion Rental. All rights reserved.</p>
-          <div className="flex gap-6">
-            <Link href="/privacy" className="hover:text-white transition">Chính sách bảo mật</Link>
-            <Link href="/terms" className="hover:text-white transition">Điều khoản</Link>
-          </div>
+        <div className="border-t border-[#333] mt-12 pt-8 text-sm text-[#A0A0A0]">
+          <p>© {new Date().getFullYear()} {store?.['store.legalName'] ?? 'Hamin'}. Bảo lưu mọi quyền.</p>
         </div>
       </div>
     </footer>

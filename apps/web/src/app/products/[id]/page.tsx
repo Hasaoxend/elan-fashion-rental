@@ -4,6 +4,7 @@ import { Star, ChevronRight } from 'lucide-react';
 import { getProduct } from '@/lib/api';
 import { ProductGallery } from '@/components/product-gallery';
 import { BookingForm } from '@/components/booking-form';
+import { WishlistButton } from '@/components/wishlist-button';
 
 export default async function ProductDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -35,7 +36,10 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
             <span className="text-xs text-[#A0A0A0]">SKU: {product.sku}</span>
           </div>
 
-          <h1 className="font-display text-4xl lg:text-5xl mb-4">{product.name}</h1>
+          <div className="flex items-start justify-between gap-4 mb-4">
+            <h1 className="font-display text-4xl lg:text-5xl">{product.name}</h1>
+            <WishlistButton productId={product.id} className="shrink-0 border border-[#E5E3DF]" />
+          </div>
 
           {product.ratingCount > 0 && (
             <div className="flex items-center gap-2 mb-6">
@@ -49,7 +53,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
             <span className="text-sm text-[#6B6B6B]">/ ngày</span>
           </div>
 
-          <p className="text-[#6B6B6B] leading-relaxed mb-8">{product.description}</p>
+          <p className="text-[#6B6B6B] leading-relaxed mb-8 whitespace-pre-line">{product.description}</p>
 
           <dl className="grid grid-cols-2 gap-x-6 gap-y-4 py-6 border-y border-[#E5E3DF] mb-8 text-sm">
             <div><dt className="text-[#A0A0A0] mb-1">Kích thước</dt><dd className="font-medium">{Array.from(new Set(product.variants.map((v) => v.size))).join(' / ') || '—'}</dd></div>

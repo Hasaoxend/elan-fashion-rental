@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../db';
 import { requireAuth, requireRole } from '../middleware/auth';
-import { paymentSchema, settingSchema, maintenanceSchema } from '../validation';
+import { paymentSchema, settingSchema, maintenanceSchema, createUserSchema } from '../validation';
 import { toUtcDate } from '../lib/date';
 import { AppError } from '../constants';
 
@@ -49,12 +49,22 @@ adminRouter.get('/dashboard', async (_req, res, next) => {
   } catch (error) { next(error); }
 });
 
+/** Danh sách sản phẩm cho admin: gồm cả sản phẩm đã ngừng hoạt động, không giới hạn 48 như API public. */
+adminRouter.get('/products', async (_req, res, next) => {
+  try {
+    const items = await prisma.product.findMany({ orderBy: { createdAt: 'desc' }, include: { images: { orderBy: { sortOrder: 'asc' } }, category: true, variants: true } });
+    res.json({ items: items.map((p) => ({ ...p, availableStock: p.variants.reduce((s, v) => s + Math.max(0, v.stockTotal - v.stockBroken - v.stockReservedForMaintenance), 0) })) });
+  } catch (error) { next(error); }
+});
+
 adminRouter.get('/bookings', async (req, res, next) => {
   try {
-    const from = req.query.from ? new Date(String(req.query.from)) : undefined;
-    const to = req.query.to ? new Date(String(req.query.to)) : undefined;
+    // from/to (YYYY-MM-DD, to không bao gồm): lấy mọi đơn có khoảng thuê giao với [from, to),
+    // để đơn bắt đầu từ tháng trước nhưng kéo sang tháng này vẫn hiện trên lịch.
+    const from = req.query.from ? toUtcDate(String(req.query.from)) : undefined;
+    const to = req.query.to ? toUtcDate(String(req.query.to)) : undefined;
     const status = req.query.status ? String(req.query.status) : undefined;
-    const bookings = await prisma.booking.findMany({ where: { ...(status ? { status } : {}), ...(from || to ? { pickupDate: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}) }, orderBy: { pickupDate: 'asc' }, include: { customer: true, items: { include: { product: { include: { images: true } } } } } });
+    const bookings = await prisma.booking.findMany({ where: { ...(status ? { status } : {}), ...(to ? { pickupDate: { lt: to } } : {}), ...(from ? { returnDate: { gte: from } } : {}) }, orderBy: { pickupDate: 'asc' }, include: { customer: true, items: { include: { product: { include: { images: true } } } } } });
     res.json({ items: bookings });
   } catch (error) { next(error); }
 });
@@ -63,7 +73,9 @@ adminRouter.get('/customers', async (req, res, next) => {
   try {
     const search = req.query.search ? String(req.query.search) : undefined;
     const customers = await prisma.customer.findMany({ where: search ? { OR: [{ fullName: { contains: search } }, { email: { contains: search } }, { phone: { contains: search } }] } : undefined, orderBy: { createdAt: 'desc' }, take: 100, include: { _count: { select: { bookings: true } } } });
-    res.json({ items: customers });
+    // Cột Customer.totalSpent không được cập nhật ở luồng đặt đơn → tính trực tiếp từ đơn hợp lệ.
+    const spent = await prisma.booking.groupBy({ by: ['customerId'], _sum: { total: true }, where: { customerId: { in: customers.map((c) => c.id) }, status: { notIn: ['cancelled', 'rejected'] } } });
+    res.json({ items: customers.map((c) => ({ ...c, totalSpent: spent.find((s) => s.customerId === c.id)?._sum.total ?? 0 })) });
   } catch (error) { next(error); }
 });
 
@@ -78,7 +90,7 @@ adminRouter.patch('/notifications/:id/read', async (req, res, next) => {
   try { const item = await prisma.notification.update({ where: { id: req.params.id }, data: { isRead: true } }); res.json(item); } catch (error) { next(error); }
 });
 
-adminRouter.get('/payments', requireRole('SUPER_ADMIN', 'ADMIN', 'ACCOUNTANT'), async (req, res, next) => {
+adminRouter.get('/payments', requireRole('SUPER_ADMIN', 'ADMIN', 'ACCOUNTANT', 'STAFF'), async (req, res, next) => {
   try {
     const status = req.query.status ? String(req.query.status) : undefined;
     const method = req.query.method ? String(req.query.method) : undefined;
@@ -92,7 +104,7 @@ adminRouter.get('/payments', requireRole('SUPER_ADMIN', 'ADMIN', 'ACCOUNTANT'), 
   } catch (error) { next(error); }
 });
 
-adminRouter.post('/payments', requireRole('SUPER_ADMIN', 'ADMIN', 'ACCOUNTANT'), async (req, res, next) => {
+adminRouter.post('/payments', requireRole('SUPER_ADMIN', 'ADMIN', 'ACCOUNTANT', 'STAFF'), async (req, res, next) => {
   try {
     const parsed = paymentSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -122,7 +134,7 @@ adminRouter.post('/payments', requireRole('SUPER_ADMIN', 'ADMIN', 'ACCOUNTANT'),
   } catch (error) { next(error); }
 });
 
-adminRouter.patch('/payments/:id', requireRole('SUPER_ADMIN', 'ADMIN', 'ACCOUNTANT'), async (req, res, next) => {
+adminRouter.patch('/payments/:id', requireRole('SUPER_ADMIN', 'ADMIN', 'ACCOUNTANT', 'STAFF'), async (req, res, next) => {
   try {
     const parsed = paymentSchema.partial().safeParse(req.body);
     if (!parsed.success) {
@@ -154,6 +166,7 @@ adminRouter.post('/maintenance', requireRole('SUPER_ADMIN', 'ADMIN', 'WAREHOUSE'
       res.status(400).json({ code: 'INVALID_INPUT', message: 'Thông tin bảo trì không hợp lệ.', issues: parsed.error.issues });
       return;
     }
+    if (toUtcDate(parsed.data.endDate) < toUtcDate(parsed.data.startDate)) throw new AppError('Ngày kết thúc phải từ ngày bắt đầu trở đi.', 400, 'INVALID_DATE_RANGE');
     const item = await prisma.maintenance.create({
       data: {
         productId: parsed.data.productId,
@@ -199,6 +212,7 @@ adminRouter.get('/reports', requireRole('SUPER_ADMIN', 'ADMIN', 'ACCOUNTANT'), a
       }),
       prisma.bookingItem.groupBy({
         by: ['productId'],
+        where: { booking: { createdAt: { gte: from }, status: { notIn: ['cancelled', 'rejected'] } } },
         _sum: { quantity: true, lineSubtotal: true },
         _count: { _all: true },
         orderBy: { _sum: { lineSubtotal: 'desc' } },
@@ -206,6 +220,7 @@ adminRouter.get('/reports', requireRole('SUPER_ADMIN', 'ADMIN', 'ACCOUNTANT'), a
       }),
       prisma.booking.groupBy({
         by: ['customerId'],
+        where: { createdAt: { gte: from }, status: { notIn: ['cancelled', 'rejected'] } },
         _sum: { total: true },
         _count: { _all: true },
         orderBy: { _sum: { total: 'desc' } },
@@ -257,24 +272,44 @@ adminRouter.put('/settings', requireRole('SUPER_ADMIN', 'ADMIN'), async (req, re
   } catch (error) { next(error); }
 });
 
+// Không bao giờ trả passwordHash / thông tin khóa đăng nhập ra API.
+/** Trang quản trị chỉ cấp vai trò nội bộ; vai trò CUSTOMER dành cho khách tự đăng ký trên website. */
+async function assertStaffRole(roleId: string) {
+  const role = await prisma.role.findUnique({ where: { id: roleId } });
+  if (!role || role.name === 'CUSTOMER') throw new AppError('Vai trò không hợp lệ cho tài khoản nhân viên.', 400, 'INVALID_ROLE');
+}
+
+const userSelect = { id: true, email: true, fullName: true, roleId: true, isActive: true, mustChangePassword: true, createdAt: true, role: true } as const;
+
 adminRouter.get('/users', requireRole('SUPER_ADMIN'), async (_req, res, next) => {
   try {
-    const users = await prisma.user.findMany({ include: { role: true }, orderBy: { createdAt: 'desc' } });
+    const users = await prisma.user.findMany({ where: { role: { name: { not: 'CUSTOMER' } } }, select: userSelect, orderBy: { createdAt: 'desc' } });
     res.json({ items: users });
+  } catch (error) { next(error); }
+});
+
+adminRouter.get('/users/:id', requireRole('SUPER_ADMIN'), async (req, res, next) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.params.id }, select: userSelect });
+    if (!user) throw new AppError('Không tìm thấy người dùng.', 404, 'USER_NOT_FOUND');
+    res.json(user);
   } catch (error) { next(error); }
 });
 
 adminRouter.post('/users', requireRole('SUPER_ADMIN'), async (req, res, next) => {
   try {
-    const { email, fullName, password, roleId } = req.body ?? {};
-    if (typeof email !== 'string' || typeof fullName !== 'string' || typeof password !== 'string' || typeof roleId !== 'string') {
-      throw new AppError('Thiếu thông tin bắt buộc.', 400, 'INVALID_INPUT');
+    const parsed = createUserSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ code: 'INVALID_INPUT', message: 'Thông tin người dùng không hợp lệ.', issues: parsed.error.issues });
+      return;
     }
-    const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+    const { password, ...data } = parsed.data;
+    await assertStaffRole(data.roleId);
+    const existing = await prisma.user.findUnique({ where: { email: data.email } });
     if (existing) throw new AppError('Email đã được sử dụng.', 409, 'EMAIL_TAKEN');
     const bcrypt = await import('bcryptjs');
     const passwordHash = await bcrypt.hash(password, 12);
-    const user = await prisma.user.create({ data: { email: email.toLowerCase(), fullName, passwordHash, roleId }, include: { role: true } });
+    const user = await prisma.user.create({ data: { ...data, passwordHash }, select: userSelect });
     res.status(201).json(user);
   } catch (error) { next(error); }
 });
@@ -284,16 +319,18 @@ adminRouter.patch('/users/:id', requireRole('SUPER_ADMIN'), async (req, res, nex
     const { fullName, roleId, isActive, mustChangePassword } = req.body ?? {};
     const data: any = {};
     if (typeof fullName === 'string') data.fullName = fullName;
-    if (typeof roleId === 'string') data.roleId = roleId;
+    if (typeof roleId === 'string') { await assertStaffRole(roleId); data.roleId = roleId; }
     if (typeof isActive === 'boolean') data.isActive = isActive;
+    if (req.params.id === req.authUser?.id && isActive === false) throw new AppError('Không thể tự khóa tài khoản đang đăng nhập.', 409, 'CANNOT_DEACTIVATE_SELF');
     if (typeof mustChangePassword === 'boolean') data.mustChangePassword = mustChangePassword;
-    const user = await prisma.user.update({ where: { id: req.params.id }, data, include: { role: true } });
+    const user = await prisma.user.update({ where: { id: req.params.id }, data, select: userSelect });
     res.json(user);
   } catch (error) { next(error); }
 });
 
 adminRouter.delete('/users/:id', requireRole('SUPER_ADMIN'), async (req, res, next) => {
   try {
+    if (req.params.id === req.authUser?.id) throw new AppError('Không thể tự xóa tài khoản đang đăng nhập.', 409, 'CANNOT_DELETE_SELF');
     await prisma.user.delete({ where: { id: req.params.id } });
     res.json({ ok: true });
   } catch (error) { next(error); }
@@ -301,7 +338,7 @@ adminRouter.delete('/users/:id', requireRole('SUPER_ADMIN'), async (req, res, ne
 
 adminRouter.get('/roles', requireRole('SUPER_ADMIN'), async (_req, res, next) => {
   try {
-    const roles = await prisma.role.findMany({ include: { permissions: { include: { permission: true } } } });
+    const roles = await prisma.role.findMany({ where: { name: { not: 'CUSTOMER' } }, orderBy: { createdAt: 'asc' }, include: { permissions: { include: { permission: true } } } });
     res.json({ items: roles });
   } catch (error) { next(error); }
 });

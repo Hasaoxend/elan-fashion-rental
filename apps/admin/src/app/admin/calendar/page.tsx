@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { getAdminBookings } from '@/lib/api';
 import { StatusBadge } from '@/components/status-badge';
@@ -19,8 +20,9 @@ export default function CalendarPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const from = new Date(cursor.getFullYear(), cursor.getMonth(), 1).toISOString();
-      const to = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).toISOString();
+      const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+      const from = ymd(cursor);
+      const to = ymd(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1));
       const data = await getAdminBookings({ from, to });
       setBookings(data.items);
     } catch (e) { toast('error', e instanceof Error ? e.message : 'Không thể tải lịch.'); }
@@ -47,9 +49,9 @@ export default function CalendarPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div><h1 className="text-3xl font-semibold">Lịch thuê</h1><p className="text-sm text-[#6B6B6B] mt-1">Xem toàn bộ lịch thuê theo tháng, cập nhật realtime.</p></div>
         <div className="flex items-center gap-2">
-          <button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))} className="p-2.5 bg-white border border-[#E5E3DF] rounded-lg hover:border-[#171717]"><ChevronLeft className="w-4 h-4" /></button>
+          <button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))} aria-label="Tháng trước" className="p-2.5 bg-white border border-[#E5E3DF] rounded-lg hover:border-[#171717]"><ChevronLeft className="w-4 h-4" /></button>
           <span className="px-4 font-medium min-w-[160px] text-center">Tháng {cursor.getMonth() + 1}, {cursor.getFullYear()}</span>
-          <button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))} className="p-2.5 bg-white border border-[#E5E3DF] rounded-lg hover:border-[#171717]"><ChevronRight className="w-4 h-4" /></button>
+          <button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))} aria-label="Tháng sau" className="p-2.5 bg-white border border-[#E5E3DF] rounded-lg hover:border-[#171717]"><ChevronRight className="w-4 h-4" /></button>
         </div>
       </div>
 
@@ -63,7 +65,7 @@ export default function CalendarPage() {
                   <>
                     <span className={`text-sm ${cell.date && new Date().toDateString() === cell.date.toDateString() ? 'bg-[#171717] text-white w-6 h-6 rounded-full flex items-center justify-center text-xs' : 'text-[#6B6B6B]'}`}>{cell.day}</span>
                     <div className="mt-1 space-y-1">
-                      {cell.date && bookingsOn(cell.date).slice(0, 3).map((booking) => <div key={booking.id} className="text-[10px] px-1.5 py-1 rounded bg-[#F5EDE3] text-[#B8843F] truncate" title={`${booking.bookingCode} · ${booking.customer.fullName}`}>#{booking.bookingCode.slice(-4)} {booking.customer.fullName.split(' ').slice(-1)[0]}</div>)}
+                      {cell.date && bookingsOn(cell.date).slice(0, 3).map((booking) => <Link key={booking.id} href={`/admin/bookings?id=${booking.id}`} className="block text-[10px] px-1.5 py-1 rounded bg-[#F5EDE3] text-[#B8843F] truncate hover:bg-[#EBDCC8]" title={`${booking.bookingCode} · ${booking.customer.fullName}`}>#{booking.bookingCode.slice(-4)} {booking.customer.fullName.split(' ').slice(-1)[0]}</Link>)}
                       {cell.date && bookingsOn(cell.date).length > 3 && <div className="text-[10px] text-[#A0A0A0] px-1.5">+{bookingsOn(cell.date).length - 3} đơn khác</div>}
                     </div>
                   </>
@@ -76,7 +78,7 @@ export default function CalendarPage() {
 
       <div className="bg-white border border-[#E5E3DF] rounded-2xl p-6">
         <h2 className="font-semibold mb-4">Đơn trong tháng</h2>
-        {bookings.length ? <div className="space-y-3">{bookings.slice(0, 10).map((booking) => <div key={booking.id} className="flex items-center justify-between p-3 rounded-xl border border-[#E5E3DF] text-sm"><div><p className="font-medium">#{booking.bookingCode} · {booking.customer.fullName}</p><p className="text-xs text-[#A0A0A0]">{new Date(booking.pickupDate).toLocaleDateString('vi-VN')} — {new Date(booking.returnDate).toLocaleDateString('vi-VN')}</p></div><StatusBadge status={booking.status} /></div>)}</div> : <p className="text-sm text-[#A0A0A0]">Không có đơn hàng trong tháng này.</p>}
+        {bookings.length ? <div className="space-y-3">{bookings.slice(0, 10).map((booking) => <Link key={booking.id} href={`/admin/bookings?id=${booking.id}`} className="flex items-center justify-between p-3 rounded-xl border border-[#E5E3DF] text-sm hover:border-[#C89B6D]"><div><p className="font-medium">#{booking.bookingCode} · {booking.customer.fullName}</p><p className="text-xs text-[#A0A0A0]">{new Date(booking.pickupDate).toLocaleDateString('vi-VN')} — {new Date(booking.returnDate).toLocaleDateString('vi-VN')}</p></div><StatusBadge status={booking.status} /></Link>)}{bookings.length > 10 && <Link href="/admin/bookings" className="block text-center text-sm text-[#6B6B6B] hover:text-[#C89B6D] pt-2">Xem tất cả đơn hàng</Link>}</div> : <p className="text-sm text-[#A0A0A0]">Không có đơn hàng trong tháng này.</p>}
       </div>
     </div>
   );

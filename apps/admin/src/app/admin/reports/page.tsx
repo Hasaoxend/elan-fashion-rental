@@ -1,9 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { Loader2, RefreshCw, BarChart3, TrendingUp, Users, Wrench, Calendar } from 'lucide-react';
 import { getReports } from '@/lib/api';
 import { useToast } from '@/components/toast';
+import { statusLabel } from '@/components/status-badge';
 
 const currency = (value: number) => value.toLocaleString('vi-VN') + 'đ';
 
@@ -32,13 +34,13 @@ export default function ReportsPage() {
           <p className="text-sm text-[#6B6B6B] mt-1">Phân tích doanh thu, hiệu suất sản phẩm và khách hàng.</p>
         </div>
         <div className="flex items-center gap-3">
-          <select value={days} onChange={(e) => setDays(Number(e.target.value))} className="px-4 py-2 border border-[#E5E3DF] rounded-lg text-sm outline-none focus:border-[#C89B6D]">
+          <select value={days} onChange={(e) => setDays(Number(e.target.value))} aria-label="Khoảng thời gian" className="bg-white px-4 py-2 border border-[#E5E3DF] rounded-lg text-sm outline-none focus:border-[#C89B6D]">
             <option value={7}>7 ngày</option>
             <option value={30}>30 ngày</option>
             <option value={60}>60 ngày</option>
             <option value={90}>90 ngày</option>
           </select>
-          <button onClick={load} className="p-3 bg-white border border-[#E5E3DF] rounded-lg"><RefreshCw className="w-4 h-4" /></button>
+          <button onClick={load} title="Làm mới" aria-label="Làm mới" className="p-3 bg-white border border-[#E5E3DF] rounded-lg hover:border-[#171717]"><RefreshCw className="w-4 h-4" /></button>
         </div>
       </div>
 
@@ -56,7 +58,7 @@ export default function ReportsPage() {
             </div>
             <div className="bg-white border border-[#E5E3DF] rounded-2xl p-6">
               <div className="flex items-start justify-between mb-4">
-                <p className="text-sm text-[#6B6B6B]">Số lượt thuê</p>
+                <p className="text-sm text-[#6B6B6B]">Số trang phục được thuê</p>
                 <div className="w-10 h-10 rounded-xl bg-[#F5EDE3] flex items-center justify-center"><BarChart3 className="w-5 h-5 text-[#C89B6D]" /></div>
               </div>
               <p className="text-2xl font-semibold">{data.utilization}</p>
@@ -70,12 +72,12 @@ export default function ReportsPage() {
             </div>
             <div className="bg-white border border-[#E5E3DF] rounded-2xl p-6">
               <div className="flex items-start justify-between mb-4">
-                <p className="text-sm text-[#6B6B6B]">Trạng thái đơn hàng</p>
+                <p className="text-sm text-[#6B6B6B]">Trạng thái đơn hàng (toàn thời gian)</p>
                 <div className="w-10 h-10 rounded-xl bg-[#ECECEC] flex items-center justify-center"><Calendar className="w-5 h-5 text-[#171717]" /></div>
               </div>
               <div className="flex flex-wrap gap-2">
                 {data.statusCounts.map((s: any) => (
-                  <span key={s.status} className="text-xs px-2 py-1 bg-[#F8F7F5] rounded-full">{s.status}: {s._count._all}</span>
+                  <span key={s.status} className="text-xs px-2 py-1 bg-[#F8F7F5] rounded-full">{statusLabel(s.status)}: {s._count._all}</span>
                 ))}
               </div>
             </div>
@@ -85,7 +87,7 @@ export default function ReportsPage() {
             <h2 className="font-semibold mb-6">Doanh thu theo ngày</h2>
             <div className="flex items-end gap-1 h-40">
               {Object.entries(data.revenueByDay).slice(-30).map(([date, value]: [string, any]) => (
-                <div key={date} className="flex-1 flex flex-col items-center gap-2 group">
+                <div key={date} title={`${new Date(date).toLocaleDateString('vi-VN')}: ${currency(Number(value))}`} className="flex-1 h-full flex flex-col justify-end items-center gap-2 group">
                   <div
                     className="w-full bg-[#C89B6D] rounded-t hover:bg-[#B88A5C] transition"
                     style={{ height: `${maxRevenue ? (Number(value) / maxRevenue) * 100 : 0}%`, minHeight: '4px' }}
@@ -106,7 +108,7 @@ export default function ReportsPage() {
                   <div key={p.productId} className="px-6 py-4 flex items-center gap-4">
                     <span className="w-6 h-6 rounded-full bg-[#F8F7F5] text-sm font-medium text-[#6B6B6B] flex items-center justify-center">{i + 1}</span>
                     <div className="flex-1">
-                      <p className="font-medium">{p.product?.name || '—'}</p>
+                      <Link href={`/admin/products/${p.productId}/edit`} className="font-medium hover:text-[#C89B6D]">{p.product?.name || '—'}</Link>
                       <p className="text-xs text-[#A0A0A0]">{p.product?.sku}</p>
                     </div>
                     <div className="text-right">
@@ -127,7 +129,7 @@ export default function ReportsPage() {
                   <div key={c.customerId} className="px-6 py-4 flex items-center gap-4">
                     <span className="w-6 h-6 rounded-full bg-[#F8F7F5] text-sm font-medium text-[#6B6B6B] flex items-center justify-center">{i + 1}</span>
                     <div className="flex-1">
-                      <p className="font-medium">{c.customer?.fullName || '—'}</p>
+                      <Link href={`/admin/bookings?search=${encodeURIComponent(c.customer?.phone ?? '')}`} className="font-medium hover:text-[#C89B6D]">{c.customer?.fullName || '—'}</Link>
                       <p className="text-xs text-[#A0A0A0]">{c.customer?.phone}</p>
                     </div>
                     <div className="text-right">

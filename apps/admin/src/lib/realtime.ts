@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
+import { getToken } from './api';
 
 const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:4000';
 
@@ -17,7 +18,8 @@ export function useRealtime(rooms: string[] = ['admin']) {
   const [events, setEvents] = useState<RealtimeEvent[]>([]);
 
   useEffect(() => {
-    const socket = io(SOCKET_URL, { transports: ['websocket'], reconnection: true });
+    // auth dạng hàm: mỗi lần (re)connect đọc token mới nhất (access token được refresh định kỳ).
+    const socket = io(SOCKET_URL, { transports: ['websocket'], reconnection: true, auth: (cb) => cb({ token: getToken() }) });
     socketRef.current = socket;
     socket.on('connect', () => { setConnected(true); socket.emit('subscribe', { rooms }); });
     socket.on('disconnect', () => setConnected(false));

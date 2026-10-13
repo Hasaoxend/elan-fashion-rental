@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../db';
-import { authenticateLogin, issueTokens, requireAuth, requireRole, type AuthUser } from '../middleware/auth';
+import { authenticateLogin, issueTokens, normalizePhone, requireAuth, type AuthUser } from '../middleware/auth';
 import { registerSchema } from '../validation';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
@@ -12,7 +12,7 @@ export const authRouter = Router();
 authRouter.post('/login', async (req, res, next) => {
   try {
     const { email, password } = req.body ?? {};
-    if (typeof email !== 'string' || typeof password !== 'string') throw new AppError('Email và mật khẩu là bắt buộc.', 400, 'INVALID_INPUT');
+    if (typeof email !== 'string' || typeof password !== 'string') throw new AppError('Email/số điện thoại và mật khẩu là bắt buộc.', 400, 'INVALID_INPUT');
     const { authUser, mustChangePassword } = await authenticateLogin(email, password);
     const tokens = await issueTokens(authUser, req);
     res.json({ user: authUser, mustChangePassword, ...tokens });
@@ -26,19 +26,31 @@ authRouter.post('/register', async (req, res, next) => {
       res.status(400).json({ code: 'INVALID_INPUT', message: 'Thông tin chưa hợp lệ.', issues: parsed.error.issues });
       return;
     }
-    const { fullName, email, phone, password } = parsed.data;
+    const { fullName, password } = parsed.data;
+    const email = parsed.data.email.toLowerCase();
+    const phone = normalizePhone(parsed.data.phone);
+    if (!/^0\d{9}$/.test(phone)) throw new AppError('Số điện thoại không hợp lệ (10 số, bắt đầu bằng 0).', 400, 'INVALID_PHONE');
 
-    const existingUser = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
-    if (existingUser) throw new AppError('Email đã được sử dụng.', 409, 'EMAIL_TAKEN');
-    const existingCustomer = await prisma.customer.findFirst({ where: { OR: [{ email: email.toLowerCase() }, { phone }] } });
-    if (existingCustomer) throw new AppError('Số điện thoại hoặc email đã tồn tại.', 409, 'CUSTOMER_EXISTS');
+    if (await prisma.user.findUnique({ where: { email } })) throw new AppError('Email đã được dùng cho một tài khoản khác.', 409, 'EMAIL_TAKEN');
+    if (await prisma.user.findFirst({ where: { phone } })) throw new AppError('Số điện thoại đã được dùng cho một tài khoản khác.', 409, 'PHONE_TAKEN');
+    // Khách từng đặt đơn không cần tài khoản: gộp hồ sơ cũ khi trùng cả email lẫn SĐT (chưa có OTP nên
+    // chỉ trùng email là chưa đủ để chứng minh chính chủ và xem lịch sử đơn).
+    const guest = await prisma.customer.findUnique({ where: { email } });
+    if (guest && (guest.userId || normalizePhone(guest.phone) !== phone)) {
+      throw new AppError('Email này đã được dùng để đặt đơn với số điện thoại khác. Vui lòng dùng email khác hoặc liên hệ cửa hàng.', 409, 'CUSTOMER_EXISTS');
+    }
 
     const role = await prisma.role.findUnique({ where: { name: 'CUSTOMER' } });
     if (!role) throw new AppError('Hệ thống chưa cấu hình vai trò khách hàng.', 500, 'ROLE_MISSING');
 
     const passwordHash = await bcrypt.hash(password, 12);
-    const user = await prisma.user.create({ data: { email: email.toLowerCase(), fullName, passwordHash, roleId: role.id }, include: { role: true } });
-    const customer = await prisma.customer.create({ data: { email: email.toLowerCase(), fullName, phone, userId: user.id } });
+    const { user, customer } = await prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({ data: { email, phone, fullName, passwordHash, roleId: role.id }, include: { role: true } });
+      const customer = guest
+        ? await tx.customer.update({ where: { id: guest.id }, data: { userId: user.id, fullName, phone } })
+        : await tx.customer.create({ data: { email, fullName, phone, userId: user.id } });
+      return { user, customer };
+    });
 
     const authUser: AuthUser = { id: user.id, email: user.email, fullName: user.fullName, role: user.role.name, customerId: customer.id };
     const tokens = await issueTokens(authUser, req);
@@ -68,7 +80,7 @@ authRouter.get('/me', requireAuth, async (req, res, next) => {
     const user = await prisma.user.findUnique({ where: { id: req.authUser!.id }, include: { role: { include: { permissions: { include: { permission: true } } } }, customer: true } });
     if (!user) throw new AppError('Không tìm thấy người dùng.', 404, 'USER_NOT_FOUND');
     res.json({
-      id: user.id, email: user.email, fullName: user.fullName, role: user.role.name,
+      id: user.id, email: user.email, phone: user.phone, fullName: user.fullName, role: user.role.name,
       mustChangePassword: user.mustChangePassword, customerId: user.customer?.id,
       permissions: user.role.permissions.map((rp) => rp.permission.code),
     });

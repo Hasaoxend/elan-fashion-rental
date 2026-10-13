@@ -1,7 +1,8 @@
 const nextConfig = {
   images: {
     remotePatterns: [
-      { protocol: 'https', hostname: 'images.unsplash.com' },
+      // Ảnh sản phẩm do admin nhập có thể ở bất kỳ host HTTPS nào (Cloudinary, S3...).
+      { protocol: 'https', hostname: '**' },
     ],
   },
 };

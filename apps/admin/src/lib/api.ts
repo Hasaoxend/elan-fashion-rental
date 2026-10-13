@@ -43,8 +43,14 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   }
 
   if (!response.ok) {
-    if (response.status === 401) clearToken();
-    throw new Error(body.message || 'Không thể tải dữ liệu.');
+    // Hết phiên (refresh cũng thất bại): về trang đăng nhập, giữ lại trang hiện tại để quay lại.
+    if (response.status === 401 && path !== '/auth/login') {
+      clearToken();
+      window.location.href = `/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+    }
+    const issues: Array<{ path: Array<string | number>; message: string }> = body.issues || [];
+    const detail = issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ');
+    throw new Error(detail ? `${body.message} ${detail}` : body.message || 'Không thể tải dữ liệu.');
   }
   return body;
 }
@@ -56,6 +62,7 @@ export interface DashboardData {
 
 export async function login(email: string, password: string) {
   const data = await request<{ user: any; accessToken: string; refreshToken: string; mustChangePassword: boolean }>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+  if (data.user.role === 'CUSTOMER') throw new Error('Tài khoản khách hàng không thể đăng nhập trang quản trị.');
   setToken(data.accessToken, data.refreshToken);
   return data;
 }
@@ -71,11 +78,13 @@ export async function getAdminBookings(params: Record<string, string> = {}) {
 }
 export async function getAdminCustomers(search = '') { return request<{ items: any[] }>(`/admin/customers${search ? `?search=${encodeURIComponent(search)}` : ''}`); }
 export async function getNotifications() { return request<{ items: any[] }>('/admin/notifications'); }
+export async function markNotificationRead(id: string) { return request<any>(`/admin/notifications/${id}/read`, { method: 'PATCH' }); }
 export async function updateBookingStatus(id: string, status: string, note?: string) {
   return request<{ booking: any }>(`/bookings/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, note }) });
 }
 export async function getBooking(id: string) { return request<any>(`/bookings/${id}`); }
-export async function getAdminProducts() { return request<{ items: any[] }>('/products?pageSize=48'); }
+export async function getAdminProducts() { return request<{ items: any[] }>('/admin/products'); }
+export async function getProduct(id: string) { return request<any>(`/products/${id}`); }
 export async function getCategories() { return request<{ categories: any[] }>('/products/meta').then((meta) => meta.categories); }
 export async function createProduct(data: any) { return request<any>('/products', { method: 'POST', body: JSON.stringify(data) }); }
 export async function updateProduct(id: string, data: any) { return request<any>(`/products/${id}`, { method: 'PUT', body: JSON.stringify(data) }); }
@@ -98,6 +107,7 @@ export async function saveSetting(key: string, value: string, group = 'general')
   return request<any>('/admin/settings', { method: 'PUT', body: JSON.stringify({ key, value, group }) });
 }
 export async function getUsers() { return request<{ items: any[] }>('/admin/users'); }
+export async function getUser(id: string) { return request<any>(`/admin/users/${id}`); }
 export async function createUser(data: any) { return request<any>('/admin/users', { method: 'POST', body: JSON.stringify(data) }); }
 export async function updateUser(id: string, data: any) { return request<any>(`/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) }); }
 export async function deleteUser(id: string) { return request<any>(`/admin/users/${id}`, { method: 'DELETE' }); }
@@ -106,3 +116,6 @@ export async function updateRolePermissions(id: string, permissionIds: string[])
   return request<any>(`/admin/roles/${id}/permissions`, { method: 'PATCH', body: JSON.stringify({ permissionIds }) });
 }
 export async function getMe() { return request<any>('/auth/me'); }
+export async function changePassword(currentPassword: string, newPassword: string) {
+  return request<{ ok: boolean }>('/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) });
+}

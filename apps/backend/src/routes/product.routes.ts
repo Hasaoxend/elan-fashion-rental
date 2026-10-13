@@ -23,15 +23,15 @@ productRouter.get('/', async (req, res, next) => {
     if (status) where.status = status;
     if (brand) where.brand = brand;
     if (search) where.OR = [{ name: { contains: search } }, { sku: { contains: search } }];
+    // Bộ lọc màu trên web dùng màu hiển thị của sản phẩm (colorName); vẫn khớp màu biến thể nếu có.
+    if (color) where.AND = [{ OR: [{ colorName: color }, { variants: { some: { color } } }] }];
     if (minPrice || maxPrice) {
       where.pricePerDay = {
         ...(minPrice ? { gte: Number(minPrice) } : {}),
         ...(maxPrice ? { lte: Number(maxPrice) } : {}),
       };
     }
-    if (size || color) {
-      where.variants = { some: { ...(size ? { size } : {}), ...(color ? { color } : {}) } };
-    }
+    if (size) where.variants = { some: { size } };
 
     const orderBy = (() => {
       switch (sort) {
@@ -148,15 +148,31 @@ productRouter.put('/:id', requireAuth, requireRole('SUPER_ADMIN', 'ADMIN'), asyn
       res.status(400).json({ code: 'INVALID_INPUT', message: 'Thông tin sản phẩm không hợp lệ.', issues: parsed.error.issues });
       return;
     }
-    const { images, variants, ...data } = parsed.data as any;
-    const product = await prisma.product.update({
-      where: { id: req.params.id },
-      data: {
-        ...data,
-        images: images ? { deleteMany: {}, create: images } : undefined,
-        variants: variants ? { deleteMany: {}, create: variants } : undefined,
-      },
-      include: { images: true, category: true, variants: true },
+    const { images, variants, ...data } = parsed.data;
+    const productId = req.params.id;
+    const product = await prisma.$transaction(async (tx) => {
+      if (variants) {
+        // Cập nhật biến thể tại chỗ theo (size, color): giữ nguyên id để đơn thuê, lịch sử kho
+        // và số lượng hỏng/bảo trì vẫn gắn đúng biến thể. Chỉ xóa biến thể chưa từng được dùng.
+        const keep = new Set(variants.map((v) => `${v.size}|${v.color}`));
+        const existing = await tx.productVariant.findMany({ where: { productId }, include: { _count: { select: { items: true, inventoryTransactions: true } } } });
+        const removed = existing.filter((v) => !keep.has(`${v.size}|${v.color}`));
+        const inUse = removed.find((v) => v._count.items > 0 || v._count.inventoryTransactions > 0);
+        if (inUse) throw new AppError(`Không thể xóa biến thể ${inUse.size} / ${inUse.color} vì đã có đơn thuê hoặc lịch sử kho.`, 409, 'VARIANT_IN_USE');
+        await tx.productVariant.deleteMany({ where: { id: { in: removed.map((v) => v.id) } } });
+        for (const { size, color, stockTotal, pricePerDay } of variants) {
+          await tx.productVariant.upsert({
+            where: { productId_size_color: { productId, size, color } },
+            update: { stockTotal, pricePerDay },
+            create: { productId, size, color, stockTotal, pricePerDay },
+          });
+        }
+      }
+      return tx.product.update({
+        where: { id: productId },
+        data: { ...data, images: images ? { deleteMany: {}, create: images } : undefined },
+        include: { images: { orderBy: { sortOrder: 'asc' } }, category: true, variants: true },
+      });
     });
     res.json(product);
   } catch (error) { next(error); }

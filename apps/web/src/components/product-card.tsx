@@ -2,8 +2,9 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
-import { Heart, Star } from 'lucide-react';
+import { Star } from 'lucide-react';
 import { Product } from '../lib/api';
+import { WishlistButton } from './wishlist-button';
 
 interface ProductCardProps {
   product: Product;
@@ -35,9 +36,7 @@ export function ProductCard({ product }: ProductCardProps) {
             {status.label}
           </span>
         </div>
-        <button className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/90 hover:bg-white flex items-center justify-center transition">
-          <Heart className="w-5 h-5 text-[#6B6B6B]" />
-        </button>
+        <WishlistButton productId={product.id} className="absolute top-4 right-4" />
         <div className="absolute inset-x-4 bottom-4 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
           <Link
             href={`/products/${product.id}`}

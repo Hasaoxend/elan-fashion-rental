@@ -1,13 +1,13 @@
 import { Router } from 'express';
 import { prisma } from '../db';
 import { createBookingSchema, updateBookingStatusSchema } from '../validation';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { normalizePhone, optionalAuth, requireAuth, requireRole } from '../middleware/auth';
 import { createBooking, updateBookingStatus } from '../services/booking.service';
 import { AppError } from '../constants';
 
 export const bookingRouter = Router();
 
-bookingRouter.post('/', async (req, res, next): Promise<void> => {
+bookingRouter.post('/', optionalAuth, async (req, res, next): Promise<void> => {
   try {
     const parsed = createBookingSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -19,16 +19,18 @@ bookingRouter.post('/', async (req, res, next): Promise<void> => {
   } catch (error) { next(error); }
 });
 
-/** Public order lookup requires both a booking code and the customer phone. */
+/** Tra cứu công khai: cần mã đơn và SĐT hoặc email của khách đặt đơn. */
 bookingRouter.get('/lookup/:bookingCode', async (req, res, next): Promise<void> => {
   try {
-    const phone = String(req.query.phone ?? '').trim();
-    if (!phone) {
-      res.status(400).json({ code: 'PHONE_REQUIRED', message: 'Vui lòng nhập số điện thoại đặt đơn.' });
+    const contact = String(req.query.phone ?? '').trim();
+    if (!contact) {
+      res.status(400).json({ code: 'PHONE_REQUIRED', message: 'Vui lòng nhập số điện thoại hoặc email đặt đơn.' });
       return;
     }
-    const booking = await prisma.booking.findFirst({
-      where: { bookingCode: req.params.bookingCode, customer: { phone } },
+    // Khách hay copy cả dấu "#" trong "#BK..." hoặc gõ chữ thường / có khoảng trắng.
+    const bookingCode = req.params.bookingCode.replace(/[#\s]/g, '').toUpperCase();
+    const booking = await prisma.booking.findUnique({
+      where: { bookingCode },
       include: {
         customer: { select: { fullName: true, phone: true, email: true } },
         items: { include: { product: { include: { images: true } } } },
@@ -36,8 +38,11 @@ bookingRouter.get('/lookup/:bookingCode', async (req, res, next): Promise<void> 
         payments: true,
       },
     });
-    if (!booking) {
-      res.status(404).json({ code: 'BOOKING_NOT_FOUND', message: 'Không tìm thấy đơn với mã và số điện thoại này.' });
+    const matches = booking && (contact.includes('@')
+      ? booking.customer.email.toLowerCase() === contact.toLowerCase()
+      : normalizePhone(booking.customer.phone) === normalizePhone(contact));
+    if (!booking || !matches) {
+      res.status(404).json({ code: 'BOOKING_NOT_FOUND', message: 'Không tìm thấy đơn với mã và số điện thoại/email này.' });
       return;
     }
     res.json(booking);
@@ -83,13 +88,14 @@ bookingRouter.patch('/:id/status', requireAuth, requireRole('SUPER_ADMIN', 'ADMI
   } catch (error) { next(error); }
 });
 
-bookingRouter.post('/:id/cancel', async (req, res, next) => {
+bookingRouter.post('/:id/cancel', optionalAuth, async (req, res, next) => {
   try {
     const booking = await prisma.booking.findUnique({ where: { id: req.params.id }, include: { customer: true } });
     if (!booking) throw new AppError('Không tìm thấy đơn hàng.', 404, 'BOOKING_NOT_FOUND');
     if (req.authUser?.role === 'CUSTOMER' && booking.customerId !== req.authUser.customerId) throw new AppError('Bạn không có quyền hủy đơn này.', 403, 'FORBIDDEN');
-    if (!req.authUser && String(req.body?.phone ?? '').trim() !== booking.customer.phone) throw new AppError('Vui lòng xác thực bằng số điện thoại đặt đơn.', 403, 'FORBIDDEN');
-    if (['completed', 'cancelled', 'returned'].includes(booking.status)) throw new AppError('Đơn hàng không thể hủy ở trạng thái hiện tại.', 409, 'INVALID_STATUS');
+    if (!req.authUser && normalizePhone(String(req.body?.phone ?? '')) !== normalizePhone(booking.customer.phone)) throw new AppError('Vui lòng xác thực bằng số điện thoại đặt đơn.', 403, 'FORBIDDEN');
+    // Khách chỉ tự hủy được khi đơn chưa chuẩn bị; các trạng thái sau do cửa hàng xử lý.
+    if (!['pending', 'confirmed'].includes(booking.status)) throw new AppError('Đơn đã được chuẩn bị nên không thể tự hủy. Vui lòng liên hệ cửa hàng.', 409, 'INVALID_STATUS');
     const updated = await updateBookingStatus(req.params.id, 'cancelled', String(req.body?.reason ?? 'Khách hàng yêu cầu hủy'), req.authUser?.id);
     res.json({ booking: updated });
   } catch (error) { next(error); }

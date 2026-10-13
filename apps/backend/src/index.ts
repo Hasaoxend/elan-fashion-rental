@@ -32,6 +32,12 @@ app.get('/health', async (_req, res) => {
   try { await prisma.$queryRaw`SELECT 1`; res.json({ ok: true, service: 'fashion-rental-api', timestamp: new Date().toISOString() }); }
   catch { res.status(503).json({ ok: false }); }
 });
+app.get('/api/settings/public', async (_req, res, next) => {
+  try {
+    const items = await prisma.setting.findMany({ where: { key: { startsWith: 'store.' } } });
+    res.json(Object.fromEntries(items.map((item) => [item.key, item.value])));
+  } catch (error) { next(error); }
+});
 app.use('/api/auth', authRouter);
 app.use('/api/products', productRouter);
 app.use('/api/bookings', bookingRouter);
@@ -41,12 +47,15 @@ app.use((_req, _res, next) => { next(new AppError('Không tìm thấy endpoint.'
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction): void => {
   console.error(error);
   if (error instanceof AppError) { res.status(error.statusCode).json({ code: error.code, message: error.message }); return; }
-  if (error && typeof error === 'object' && 'code' in error && (error as { code?: string }).code === 'P2002') { res.status(409).json({ code: 'DUPLICATE', message: 'Dữ liệu đã tồn tại.' }); return; }
+  const prismaCode = error && typeof error === 'object' && 'code' in error ? (error as { code?: string }).code : undefined;
+  if (prismaCode === 'P2002') { res.status(409).json({ code: 'DUPLICATE', message: 'Dữ liệu đã tồn tại.' }); return; }
+  if (prismaCode === 'P2025') { res.status(404).json({ code: 'NOT_FOUND', message: 'Không tìm thấy dữ liệu.' }); return; }
+  if (prismaCode === 'P2003') { res.status(409).json({ code: 'FOREIGN_KEY', message: 'Dữ liệu liên kết không hợp lệ hoặc đang được sử dụng nên không thể xóa.' }); return; }
   res.status(500).json({ code: 'INTERNAL_ERROR', message: 'Đã xảy ra lỗi máy chủ.' });
 });
 
 initSocket(server, allowedOrigins);
-server.listen(port, () => console.log(`Fashion Rental API listening on http://localhost:${port}`));
+server.listen(port, () => console.log(`Hamin API listening on http://localhost:${port}`));
 
 const shutdown = async () => { await prisma.$disconnect(); server.close(() => process.exit(0)); };
 process.on('SIGINT', shutdown);

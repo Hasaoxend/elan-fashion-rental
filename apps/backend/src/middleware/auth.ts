@@ -50,16 +50,35 @@ export function getBearerToken(req: Request): string | undefined {
   return value?.startsWith('Bearer ') ? value.slice(7) : undefined;
 }
 
+export const STAFF_ROLES = ['SUPER_ADMIN', 'ADMIN', 'STAFF', 'WAREHOUSE', 'ACCOUNTANT'];
+
+/** Ném lỗi nếu token sai/hết hạn. Dùng chung cho HTTP và Socket.IO. */
+export function verifyAccessToken(token: string): AuthUser {
+  return jwt.verify(token, JWT_SECRET) as AuthUser;
+}
+
 export function requireAuth(req: Request, _res: Response, next: NextFunction): void {
   const token = getBearerToken(req);
   if (!token) return next(new AppError('Vui lòng đăng nhập.', 401, 'UNAUTHORIZED'));
   try {
-    req.authUser = jwt.verify(token, JWT_SECRET) as AuthUser;
+    req.authUser = verifyAccessToken(token);
     next();
   } catch {
     next(new AppError('Phiên đăng nhập đã hết hạn.', 401, 'TOKEN_EXPIRED'));
   }
 }
+
+/** Gắn req.authUser nếu có token hợp lệ; không có hoặc token sai thì coi như khách vãng lai. */
+export function optionalAuth(req: Request, _res: Response, next: NextFunction): void {
+  const token = getBearerToken(req);
+  if (token) {
+    try { req.authUser = verifyAccessToken(token); } catch { req.authUser = undefined; }
+  }
+  next();
+}
+
+/** SĐT về dạng chỉ chữ số, đầu số quốc tế +84/84 đổi thành 0. */
+export const normalizePhone = (value: string) => value.replace(/\D/g, '').replace(/^84(?=\d{9}$)/, '0');
 
 export function requireRole(...roles: string[]) {
   return (req: Request, _res: Response, next: NextFunction): void => {
@@ -69,16 +88,21 @@ export function requireRole(...roles: string[]) {
   };
 }
 
-export async function authenticateLogin(email: string, password: string) {
-  const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() }, include: { role: true, customer: true } });
-  if (!user || !user.isActive) throw new AppError('Email hoặc mật khẩu không chính xác.', 401, 'INVALID_CREDENTIALS');
+/** Đăng nhập bằng email hoặc số điện thoại (tài khoản khách đăng ký bằng SĐT). */
+export async function authenticateLogin(identifier: string, password: string) {
+  const login = identifier.trim();
+  const include = { role: true, customer: true } as const;
+  const user = login.includes('@')
+    ? await prisma.user.findUnique({ where: { email: login.toLowerCase() }, include })
+    : await prisma.user.findFirst({ where: { phone: normalizePhone(login) }, include });
+  if (!user || !user.isActive) throw new AppError('Tài khoản hoặc mật khẩu không chính xác.', 401, 'INVALID_CREDENTIALS');
   if (user.lockedUntil && user.lockedUntil > new Date()) throw new AppError('Tài khoản tạm khóa do đăng nhập sai nhiều lần.', 423, 'ACCOUNT_LOCKED');
 
   const valid = await bcrypt.compare(password, user.passwordHash);
   if (!valid) {
     const attempts = user.failedLoginAttempts + 1;
     await prisma.user.update({ where: { id: user.id }, data: { failedLoginAttempts: attempts, lockedUntil: attempts >= 5 ? new Date(Date.now() + 15 * 60_000) : null } });
-    throw new AppError('Email hoặc mật khẩu không chính xác.', 401, 'INVALID_CREDENTIALS');
+    throw new AppError('Tài khoản hoặc mật khẩu không chính xác.', 401, 'INVALID_CREDENTIALS');
   }
 
   await prisma.user.update({ where: { id: user.id }, data: { failedLoginAttempts: 0, lockedUntil: null } });

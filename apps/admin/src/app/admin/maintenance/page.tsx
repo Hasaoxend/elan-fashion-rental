@@ -1,27 +1,24 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Loader2, RefreshCw, Wrench, Plus, Search } from 'lucide-react';
-import { getMaintenance, createMaintenance, updateMaintenance, getAdminProducts } from '@/lib/api';
+import Link from 'next/link';
+import { Loader2, RefreshCw, Plus, Search } from 'lucide-react';
+import { getMaintenance, updateMaintenance } from '@/lib/api';
+import { MAINTENANCE_STATUS } from '@/lib/labels';
 import { useToast } from '@/components/toast';
 
 const currency = (value: number) => value.toLocaleString('vi-VN') + 'đ';
 
 export default function MaintenancePage() {
   const [items, setItems] = useState<any[]>([]);
-  const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ productId: '', reason: '', startDate: '', endDate: '', cost: 0, note: '' });
   const { toast } = useToast();
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [maintenance, productList] = await Promise.all([getMaintenance(), getAdminProducts()]);
-      setItems(maintenance.items);
-      setProducts(productList.items);
+      setItems((await getMaintenance()).items);
     } catch (e) {
       toast('error', e instanceof Error ? e.message : 'Không thể tải dữ liệu bảo trì.');
     } finally { setLoading(false); }
@@ -29,26 +26,13 @@ export default function MaintenancePage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const filtered = items.filter((m) => !search || m.product?.name?.toLowerCase().includes(search.toLowerCase()) || m.reason.toLowerCase().includes(search.toLowerCase()));
-
-  const submit = async () => {
-    if (!form.productId || !form.reason || !form.startDate || !form.endDate) {
-      toast('error', 'Vui lòng nhập đầy đủ thông tin.');
-      return;
-    }
-    try {
-      await createMaintenance({ ...form, cost: Number(form.cost) });
-      toast('success', 'Tạo phiếu bảo trì thành công.');
-      setShowForm(false);
-      setForm({ productId: '', reason: '', startDate: '', endDate: '', cost: 0, note: '' });
-      load();
-    } catch (e) { toast('error', e instanceof Error ? e.message : 'Không thể tạo phiếu bảo trì.'); }
-  };
+  const keyword = search.toLowerCase();
+  const filtered = items.filter((m) => !search || m.product.name.toLowerCase().includes(keyword) || m.reason.toLowerCase().includes(keyword));
 
   const updateStatus = async (id: string, status: string) => {
     try {
       await updateMaintenance(id, { status });
-      toast('success', 'Cập nhật trạng thái bảo trì.');
+      toast('success', 'Đã cập nhật trạng thái bảo trì.');
       load();
     } catch (e) { toast('error', e instanceof Error ? e.message : 'Không thể cập nhật.'); }
   };
@@ -61,43 +45,10 @@ export default function MaintenancePage() {
           <p className="text-sm text-[#6B6B6B] mt-1">Quản lý lịch bảo trì, giặt và sửa trang phục.</p>
         </div>
         <div className="flex items-center gap-3">
-          <button onClick={load} className="p-3 bg-white border border-[#E5E3DF] rounded-lg"><RefreshCw className="w-4 h-4" /></button>
-          <button onClick={() => setShowForm(!showForm)} className="inline-flex items-center justify-center gap-2 px-4 py-3 bg-[#171717] text-white rounded-lg text-sm hover:bg-[#C89B6D] transition"><Plus className="w-4 h-4" /> Tạo phiếu bảo trì</button>
+          <button onClick={load} title="Làm mới" aria-label="Làm mới" className="p-3 bg-white border border-[#E5E3DF] rounded-lg hover:border-[#171717]"><RefreshCw className="w-4 h-4" /></button>
+          <Link href="/admin/maintenance/new" className="inline-flex items-center justify-center gap-2 px-4 py-3 bg-[#171717] text-white rounded-lg text-sm hover:bg-[#C89B6D] transition"><Plus className="w-4 h-4" /> Tạo phiếu bảo trì</Link>
         </div>
       </div>
-
-      {showForm && (
-        <div className="bg-white border border-[#E5E3DF] rounded-2xl p-6 space-y-4">
-          <h2 className="font-semibold">Phiếu bảo trì mới</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <label className="block text-sm">Trang phục
-              <select value={form.productId} onChange={(e) => setForm({ ...form, productId: e.target.value })} className="mt-2 w-full px-4 py-3 border border-[#E5E3DF] rounded-lg outline-none focus:border-[#C89B6D]">
-                <option value="">Chọn trang phục</option>
-                {products.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>)}
-              </select>
-            </label>
-            <label className="block text-sm">Lý do
-              <input value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} placeholder="Ví dụ: Giặt hấp, sửa khóa..." className="mt-2 w-full px-4 py-3 border border-[#E5E3DF] rounded-lg outline-none focus:border-[#C89B6D]" />
-            </label>
-            <label className="block text-sm">Ngày bắt đầu
-              <input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} className="mt-2 w-full px-4 py-3 border border-[#E5E3DF] rounded-lg outline-none focus:border-[#C89B6D]" />
-            </label>
-            <label className="block text-sm">Ngày kết thúc
-              <input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} className="mt-2 w-full px-4 py-3 border border-[#E5E3DF] rounded-lg outline-none focus:border-[#C89B6D]" />
-            </label>
-            <label className="block text-sm">Chi phí (VND)
-              <input type="number" value={form.cost} onChange={(e) => setForm({ ...form, cost: Number(e.target.value) })} className="mt-2 w-full px-4 py-3 border border-[#E5E3DF] rounded-lg outline-none focus:border-[#C89B6D]" />
-            </label>
-            <label className="block text-sm">Ghi chú
-              <input value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} className="mt-2 w-full px-4 py-3 border border-[#E5E3DF] rounded-lg outline-none focus:border-[#C89B6D]" />
-            </label>
-          </div>
-          <div className="flex gap-3">
-            <button onClick={submit} className="px-5 py-3 bg-[#171717] text-white rounded-lg text-sm hover:bg-[#C89B6D]">Tạo phiếu</button>
-            <button onClick={() => setShowForm(false)} className="px-5 py-3 bg-white border border-[#E5E3DF] rounded-lg text-sm">Hủy</button>
-          </div>
-        </div>
-      )}
 
       <div className="bg-white border border-[#E5E3DF] rounded-2xl p-4 flex items-center gap-3">
         <Search className="w-4 h-4 text-[#A0A0A0]" />
@@ -123,23 +74,17 @@ export default function MaintenancePage() {
               <tbody className="divide-y divide-[#F3F2F0]">
                 {filtered.map((m) => (
                   <tr key={m.id} className="hover:bg-[#FAF9F8]">
-                    <td className="px-6 py-4 font-medium">{m.product?.name || 'Chua co'}</td>
+                    <td className="px-6 py-4 font-medium"><Link href={`/admin/products/${m.productId}/edit`} className="hover:text-[#C89B6D]">{m.product.name}</Link></td>
                     <td className="px-6 py-4 text-[#6B6B6B]">{m.reason}</td>
-                    <td className="px-6 py-4 text-[#6B6B6B]">{m.startDate ? new Date(m.startDate).toLocaleDateString('vi-VN') : 'Chua co'} den {m.endDate ? new Date(m.endDate).toLocaleDateString('vi-VN') : 'Chua co'}</td>
+                    <td className="px-6 py-4 text-[#6B6B6B]">{new Date(m.startDate).toLocaleDateString('vi-VN')} – {new Date(m.endDate).toLocaleDateString('vi-VN')}</td>
                     <td className="px-6 py-4">{currency(m.cost)}</td>
                     <td className="px-6 py-4">
-                      <span className={`text-xs px-2 py-1 rounded-full ${m.status === 'done' ? 'bg-[#E8F5EE] text-[#3D8B5F]' : m.status === 'in_progress' ? 'bg-[#FFF4DE] text-[#D99A32]' : 'bg-[#FDECEC] text-[#C94A4A]'}`}>
-                        {m.status === 'done' ? 'Hoàn tất' : m.status === 'in_progress' ? 'Đang xử lý' : 'Mở'}
-                      </span>
+                      <span className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${MAINTENANCE_STATUS[m.status]?.className}`}>{MAINTENANCE_STATUS[m.status]?.label || m.status}</span>
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex gap-2">
-                        {m.status !== 'done' && (
-                          <>
-                            <button onClick={() => updateStatus(m.id, 'in_progress')} className="text-xs px-3 py-1.5 bg-[#FFF4DE] text-[#D99A32] rounded-lg hover:opacity-80">Bắt đầu</button>
-                            <button onClick={() => updateStatus(m.id, 'done')} className="text-xs px-3 py-1.5 bg-[#E8F5EE] text-[#3D8B5F] rounded-lg hover:opacity-80">Hoàn tất</button>
-                          </>
-                        )}
+                        {m.status === 'open' && <button onClick={() => updateStatus(m.id, 'in_progress')} className="text-xs px-3 py-1.5 bg-[#FFF4DE] text-[#D99A32] rounded-lg hover:opacity-80">Bắt đầu</button>}
+                        {(m.status === 'open' || m.status === 'in_progress') && <button onClick={() => updateStatus(m.id, 'done')} className="text-xs px-3 py-1.5 bg-[#E8F5EE] text-[#3D8B5F] rounded-lg hover:opacity-80">Hoàn tất</button>}
                       </div>
                     </td>
                   </tr>

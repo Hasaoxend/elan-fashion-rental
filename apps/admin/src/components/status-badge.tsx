@@ -12,11 +12,14 @@ const config: Record<string, { label: string; className: string }> = {
   reserved: { label: 'Đang giữ', className: 'bg-[#FFF4DE] text-[#D99A32]' },
   rented: { label: 'Đã thuê', className: 'bg-[#FDECEC] text-[#C94A4A]' },
   maintenance: { label: 'Bảo trì', className: 'bg-[#ECECEC] text-[#6B6B6B]' },
+  inactive: { label: 'Ngừng kinh doanh', className: 'bg-[#ECECEC] text-[#6B6B6B]' },
   paid: { label: 'Đã thanh toán', className: 'bg-[#E8F5EE] text-[#3D8B5F]' },
   partial: { label: 'Thanh toán một phần', className: 'bg-[#FFF4DE] text-[#D99A32]' },
   refunded: { label: 'Đã hoàn tiền', className: 'bg-[#ECECEC] text-[#6B6B6B]' },
   failed: { label: 'Thất bại', className: 'bg-[#FDECEC] text-[#C94A4A]' },
 };
+
+export const statusLabel = (status: string) => config[status]?.label || status;
 
 export function StatusBadge({ status }: { status: string }) {
   const item = config[status] || { label: status, className: 'bg-[#ECECEC] text-[#6B6B6B]' };
